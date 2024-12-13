@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calculadora de Distância e Menor Caminho</title>
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+    <style>
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 22px;
+            background-image: linear-gradient(to right, #9ef1ff 7%, #e6fbff 47%, #ffffff 93%);
+        }
+        #cidades {
+            background: transparent;
+            border: none;
+            border-bottom: 2px solid;
+            border-image: linear-gradient(to right, #000000, #fdfdfd 100%) 1;
+            height: 18px;
+            font-size: 18px;
+            width: 450px;
+        }
+
+        #origem, #destino {
+            background: transparent;
+            border: none;
+            border-bottom: 2px solid;
+            height: 18px;
+            font-size: 18px;
+            width: 200px;
+        }
+
+        button {
+            border: none;
+            background-color: #cecece;
+            border-radius: 5px;
+            transition: background-color 0.3s, transform 0.3s;
+            cursor: pointer;
+            width: 220px;
+            height: 25px;
+            font-size: 20px;
+        }
+        li {
+            list-style: none;
+            border-bottom: 2px solid;
+            border-image: linear-gradient(to right, #5dd1dac7, #fdfdfd8f 100%) 1;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        table, th, td {
+            border: 1px solid black;
+        }
+        th, td {
+            padding: 10px;
+            text-align: center;
+        }
+        #form-container{
+            margin-bottom: 50px;
+        }
+
+        #map-container{
+            width: 400px;
+            height: 200px;
+        }
+    </style>
+
+</head>
+<body>
+    <div style="text-align: center; margin-top: 50px;">
+        <h1>Calculadora de Distância entre Cidades e Menor Caminho</h1>
+        
+        <label for="cidades">Cidades:</label><br><br>
+        <input type="text" id="cidades" value="São Bernardo do Campo, Santo André, São Paulo"><br><br>
+
+        <button onclick="calcularCaminho()">Calcular Caminho</button>
+
+        <div id="resultado" style="margin-top: 30px;"></div>
+
+        <div id="form-container">
+            <form method="POST" action="/map">
+                <input type="text" name="origem" id="origem" placeholder="Endereço de Origem" required>
+                <input type="text" name="destino" id="destino" placeholder="Endereço de Destino" required>
+                <button type="submit">Pesquisar Rota</button>
+            </form>
+        </div>
+    
+        <script>
+    
+            document.getElementById("bModalParada").onclick = function() {
+                document.getElementById("modalParada").style.display = "block";
+            }
+    
+            document.getElementById("bFecharModalParada").onclick = function() {
+                document.getElementById("modalParada").style.display = "none";
+            }
+    
+            window.onclick = function(event) {
+                const modal = document.getElementById("modalParada");
+                if (event.target == modal) {
+                    modal.style.display = "none";
+                }
+            }
+            
+            function fetchSuggestions(inputId) {
+                const query = document.getElementById(inputId).value;
+                const suggestionsContainer = document.getElementById(`suggestions-${inputId}`);
+    
+                if (query.length > 2) { 
+                    fetch('/api/cidades')
+                        .then(response => response.json())
+                        .then(cidades => {
+                            suggestionsContainer.innerHTML = '';
+                            const filteredCities = cidades.filter(city => city.toLowerCase().includes(query.toLowerCase()));
+                            
+                            if (filteredCities.length > 0) {
+                                filteredCities.forEach(city => {
+                                    const div = document.createElement('div');
+                                    div.textContent = city;
+                                    div.onclick = () => {
+                                        document.getElementById(inputId).value = city;
+                                        suggestionsContainer.style.display = 'none';
+                                    };
+                                    suggestionsContainer.appendChild(div);
+                                });
+                                suggestionsContainer.style.display = 'block';
+                            } else {
+                                suggestionsContainer.style.display = 'none';
+                            }
+                        })
+                        .catch(error => console.error('Erro ao carregar as cidades:', error));
+                } else {
+                    suggestionsContainer.style.display = 'none';
+                }
+            }
+    
+            document.addEventListener('click', function(event) {
+                const origemInput = document.getElementById('origem');
+                const destinoInput = document.getElementById('destino');
+                const localInput = document.getElementById('local');
+                const suggestionsOrigem = document.getElementById('suggestions-origem');
+                const suggestionsDestino = document.getElementById('suggestions-destino');
+                const suggestionsLocal = document.getElementById('suggestions-local');
+    
+                if (!origemInput.contains(event.target) && !suggestionsOrigem.contains(event.target)) {
+                    suggestionsOrigem.style.display = 'none';
+                }
+    
+                if (!destinoInput.contains(event.target) && !suggestionsDestino.contains(event.target)) {
+                    suggestionsDestino.style.display = 'none';
+                }
+    
+                if (!localInput.contains(event.target) && !suggestionsLocal.contains(event.target)) {
+                    suggestionsLocal.style.display = 'none';
+                }
+            });
+        </script>
+
+        <div id="map" style="height: 500px;"></div>
+    </div>
+
+    <script>
+        let map;
+        async function calcularCaminho() {
+            const cidades = document.getElementById("cidades").value.split(",").map(c => c.trim());
+            const body = {
+                cidades
+            };
+            try {
+                const response = await fetch('/caminho', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(body)
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    document.getElementById("resultado").innerHTML = `
+                        <h3>Resultado:</h3>
+                        <h4>Ordem Original e Distâncias:</h4>
+                        <p><strong>Distância Total Original:</strong> ${data.distancia_original} km</p>
+                        <ul>
+                            ${data.distancias_original.map(dist => `<li>${dist}</li>`).join('')}
+                        </ul>
+                        <h4>Menor Caminho Sugerido e Distâncias:</h4>
+                        <p><strong>Distância Total do Menor Caminho:</strong> ${data.distancia_menor} km</p>
+                        <ul>
+                            ${data.distancias_menor.map(dist => `<li>${dist}</li>`).join('')}
+                        </ul>
+                        <h5>Ordem do Menor Caminho:</h5>
+                        <p>${data.ordem_menor.join(" → ")}</p>
+                    `;
+
+                    atualizarTabelaRotas(data);
+                    atualizarTabelaDistancias(data);
+
+                    mostrarMapa(data);
+                } else {
+                    document.getElementById("resultado").innerHTML = `
+                        <h3>Erro:</h3>
+                        <p>${data.erro}</p>
+                    `;
+                }
+            } catch (error) {
+                console.error('Erro na requisição:', error);
+                document.getElementById("resultado").innerHTML = `
+                    <h3>Erro:</h3>
+                    <p>Ocorreu um erro ao processar a requisição. Tente novamente.</p>
+                `;
+            }
+        }
+
+        function initMap() {
+            map = L.map('map').setView([ -23.6944, -46.5654 ], 12); // Posição inicial no mapa (São Paulo)
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+        }
+
+        function mostrarMapa(data) {
+            map.eachLayer(function(layer) {
+                if (layer instanceof L.Polyline) {
+                    map.removeLayer(layer);
+                }
+            });
+
+            const coordenadas = data.coordenadas;
+
+            Object.keys(coordenadas).forEach(cidade => {
+                const [lat, lon] = coordenadas[cidade];
+                L.marker([lat, lon]).addTo(map)
+                    .bindPopup(`<b>${cidade}</b>`)
+                    .openPopup();
+            });
+
+            let pontosOriginais = data.ordem_menor.map(cidade => coordenadas[cidade]);
+            L.polyline(pontosOriginais, { color: 'blue' }).addTo(map);
+
+            let pontosSugeridos = data.ordem_menor.map(cidade => coordenadas[cidade]);
+            L.polyline(pontosSugeridos, { color: 'green' }).addTo(map);
+        }
+
+        window.onload = initMap;
+
+        async function atualizarTabelaRotas(data) {
+            const tabela = document.getElementById('tabelaRotas').getElementsByTagName('tbody')[0];
+            tabela.innerHTML = '';
+            const ordemCidades = data.ordem_menor;
+
+            ordemCidades.forEach(cidade => {
+                tabela.innerHTML += `
+                    <tr>
+                        <td>${cidade}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        async function atualizarTabelaDistancias(data) {
+            const tabelaDistancias = document.getElementById('tabelaDistancias').getElementsByTagName('tbody')[0];
+            tabelaDistancias.innerHTML = ''; 
+
+            const distancias = data.distancias_menor;
+
+            distancias.forEach(distancia => {
+                tabelaDistancias.innerHTML += `
+                    <tr>
+                        <td>${distancia}</td>
+                    </tr>
+                `;
+            });
+        }
+    </script>
+</body>
+</html>
